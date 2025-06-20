@@ -3,6 +3,56 @@ import { NextResponse } from 'next/server';
 // Force Node.js runtime for web scraping
 export const runtime = 'nodejs';
 
+// Helper function to decode HTML entities
+function decodeHtmlEntities(text: string): string {
+  const entities: { [key: string]: string } = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&apos;': "'",
+    '&nbsp;': ' ',
+    '&#235;': 'ë',
+    '&#233;': 'é',
+    '&#232;': 'è',
+    '&#234;': 'ê',
+    '&#236;': 'ì',
+    '&#237;': 'í',
+    '&#238;': 'î',
+    '&#239;': 'ï',
+    '&#244;': 'ô',
+    '&#245;': 'õ',
+    '&#246;': 'ö',
+    '&#249;': 'ù',
+    '&#250;': 'ú',
+    '&#251;': 'û',
+    '&#252;': 'ü',
+    '&#224;': 'à',
+    '&#225;': 'á',
+    '&#226;': 'â',
+    '&#227;': 'ã',
+    '&#228;': 'ä',
+    '&#229;': 'å',
+    '&#231;': 'ç',
+    '&#241;': 'ñ',
+    '&#242;': 'ò',
+    '&#243;': 'ó',
+  };
+
+  // Replace numeric HTML entities
+  let decoded = text.replace(/&#(\d+);/g, (match, dec) => {
+    return String.fromCharCode(dec);
+  });
+
+  // Replace named HTML entities
+  for (const [entity, char] of Object.entries(entities)) {
+    decoded = decoded.replace(new RegExp(entity, 'g'), char);
+  }
+
+  return decoded;
+}
+
 interface ScrapedProperty {
   id: string;
   title: string;
@@ -56,80 +106,92 @@ async function scrapeGrunoVerhuur(): Promise<ScrapedProperty[]> {
     const html = await resp.text();
     console.log(`📄 Received HTML: ${html.length} characters`);
 
-    // Extract property data from the HTML using patterns that match the actual structure
     const properties: ScrapedProperty[] = [];
 
-    // Pattern matches from the scraped content: € 973,50 /mnd, € 1.133,73 /mnd, etc.
-    const propertyPricePattern = /€\s*(\d{1,4}(?:\.\d{3})?),(\d{2}|\-)\s*\/mnd/gi;
-    const priceMatches = Array.from(html.matchAll(propertyPricePattern));
-    console.log(`🔗 Found ${priceMatches.length} price patterns on Gruno`);
-
-    // Also extract the titles from "Te huur:" patterns
-    const titlePattern = /Te huur:\s*([^,]+,\s*\d+[A-Z]{2}\s+Groningen)/gi;
-    const titleMatches = Array.from(html.matchAll(titlePattern));
-    console.log(`🏠 Found ${titleMatches.length} title patterns on Gruno`);
-
-    // Extract property links
-    const linkPattern = /href="(\/woningaanbod\/huur\/groningen\/[^"]+)"/gi;
+    // Find all property links with the correct Gruno format
+    const linkPattern = /href="(\/woningaanbod\/huur\/groningen\/[^"]+)"[^>]*>/gi;
     const linkMatches = Array.from(html.matchAll(linkPattern));
     console.log(`🔗 Found ${linkMatches.length} property links on Gruno`);
 
-    // Process up to 15 properties
-    const maxProperties = Math.min(priceMatches.length, titleMatches.length, linkMatches.length, 15);
+    // Also find property titles first to ensure we have enough data
+    const titlePattern = /Te huur:\s*([^,]+,\s*\d{4}\s*[A-Z]{2}\s+Groningen)/gi;
+    const titleMatches = Array.from(html.matchAll(titlePattern));
+    console.log(`🏠 Found ${titleMatches.length} property titles on Gruno`);
 
-    for (let i = 0; i < maxProperties; i++) {
-      const priceMatch = priceMatches[i];
+    // Process each property title and find its corresponding URL
+    for (let i = 0; i < Math.min(titleMatches.length, 15); i++) {
       const titleMatch = titleMatches[i];
-      const linkMatch = linkMatches[i];
-
-      if (!priceMatch || !titleMatch || !linkMatch) continue;
-
-      // Extract price
-      let price = 0;
-      const priceStr = priceMatch[1].replace('.', ''); // Remove thousands separator
-      const centsStr = priceMatch[2];
-
-      if (centsStr === '-') {
-        price = parseInt(priceStr, 10);
-      } else {
-        price = parseInt(priceStr, 10);
-      }
-
+      const title = decodeHtmlEntities(titleMatch[1].trim());
+      
+      // Find the HTML context around this title
+      const titleIndex = html.indexOf(titleMatch[0]);
+      if (titleIndex === -1) continue;
+      
+      const contextStart = Math.max(0, titleIndex - 2000);
+      const contextEnd = Math.min(html.length, titleIndex + 2000);
+      const context = html.substring(contextStart, contextEnd);
+      
+      // Extract price from this context
+      const priceMatch = context.match(/€\s*(\d{1,4}(?:\.\d{3})?),?\s*-\s*\/mnd/i);
+      if (!priceMatch) continue;
+      
+      const priceStr = priceMatch[1].replace('.', '');
+      const price = parseInt(priceStr, 10);
+      
       if (price < 400 || price > 3500) continue;
 
-      // Extract title
-      const title = titleMatch[1].trim();
+      // Extract URL from this context - try multiple patterns
+      let href = '';
+      
+      // Method 1: Look for href in the same context
+      const urlMatch = context.match(/href="(\/woningaanbod\/huur\/groningen\/[^"]+)"/i);
+      if (urlMatch) {
+        href = urlMatch[1];
+      } else {
+        // Method 2: Try to construct URL from title
+        const addressMatch = title.match(/([^,]+),\s*(\d{4})\s*([A-Z]{2})/);
+        if (addressMatch) {
+          const street = addressMatch[1].trim().toLowerCase().replace(/\s+/g, '-');
+          const number = addressMatch[2];
+          const postalCode = addressMatch[3];
+          
+          // Try to find a matching URL in the full HTML
+          const constructedPattern = new RegExp(`href="(\\/woningaanbod\\/huur\\/groningen\\/${street}[^"]*)"`, 'i');
+          const constructedMatch = html.match(constructedPattern);
+          if (constructedMatch) {
+            href = constructedMatch[1];
+          }
+        }
+      }
+      
+      // If still no URL, skip this property
+      if (!href) {
+        console.log(`⚠️ No URL found for property: ${title}`);
+        continue;
+      }
 
-      // Extract URL
-      const href = linkMatch[1];
       const fullUrl = baseUrl + href;
+      console.log(`🏠 Processing Gruno property: ${title} -> €${price} -> ${fullUrl}`);
 
-      console.log(`🏠 Processing property: ${title} -> €${price} -> ${fullUrl}`);
-
-      // Extract rooms and size from surrounding context
+      // Extract rooms and size from this context
       let rooms = 1;
       let size = '';
 
-      // Look for property details in the HTML around this property
-      const titleIndex = html.indexOf(titleMatch[0]);
-      if (titleIndex !== -1) {
-        const contextStart = Math.max(0, titleIndex - 500);
-        const contextEnd = Math.min(html.length, titleIndex + 500);
-        const context = html.substring(contextStart, contextEnd);
+      // Extract size from "Woonoppervlakte: [size] m²"
+      const sizeMatch = context.match(/Woonoppervlakte[^>]*>([^<]+)/i) || context.match(/(\d+(?:,\d+)?)\s*m[²2]/i);
+      if (sizeMatch) {
+        size = sizeMatch[1].trim() + 'm²';
+      } else {
+        size = `${20 + Math.floor(Math.random() * 40)}m²`;
+      }
 
-        // Extract rooms from patterns like "2 1 1 35 m"
-        const roomsMatch = context.match(/>\s*(\d+)\s*<.*?>\s*\d+\s*<.*?>\s*\d+\s*<.*?>\s*(\d+)\s*m/i);
-        if (roomsMatch) {
-          rooms = parseInt(roomsMatch[1]);
-          size = `${roomsMatch[2]}m²`;
-        } else {
-          // Fallback size extraction
-          const sizeMatch = context.match(/(\d+)\s*m[²2]/i);
-          if (sizeMatch) {
-            size = `${sizeMatch[1]}m²`;
-          } else {
-            size = `${20 + Math.floor(Math.random() * 40)}m²`;
-          }
+      // Extract rooms from "Aantal kamers: [number]"
+      const roomsMatch = context.match(/Aantal kamers[^>]*>([^<]+)/i) || context.match(/(\d+)\s*(?:slaap)?kamer/i);
+      if (roomsMatch) {
+        const roomsText = roomsMatch[1].trim();
+        const roomsNumber = roomsText.match(/(\d+)/);
+        if (roomsNumber) {
+          rooms = parseInt(roomsNumber[1]);
         }
       }
 
@@ -153,7 +215,7 @@ async function scrapeGrunoVerhuur(): Promise<ScrapedProperty[]> {
         daysAgo: daysAgo
       });
 
-      console.log(`✅ Added Gruno property: ${title} - €${price}`);
+      console.log(`✅ Added Gruno property: ${title} - €${price} - ${size} - ${rooms} rooms`);
     }
 
     console.log(`🎯 Gruno Verhuur: ${properties.length} properties found`);
@@ -192,49 +254,74 @@ async function scrapeVanDerMeulen(): Promise<ScrapedProperty[]> {
 
     const properties: ScrapedProperty[] = [];
 
-    // Extract prices and URLs using separate patterns
+    // Find all property links first
+    const linkPattern = /href="(\/huurwoningen\/[^"]+)"/gi;
+    const linkMatches = Array.from(html.matchAll(linkPattern));
+    console.log(`🔗 Found ${linkMatches.length} property links on Van der Meulen`);
+
+    // Also find property prices to ensure we have enough data
     const pricePattern = /(\d{1,4}(?:\.\d{3})?)\s*p\/m/gi;
     const priceMatches = Array.from(html.matchAll(pricePattern));
     console.log(`💰 Found ${priceMatches.length} price patterns on Van der Meulen`);
 
-    const urlPattern = /href="(\/huurwoningen\/[^"]+)"/gi;
-    const urlMatches = Array.from(html.matchAll(urlPattern));
-    console.log(`🔗 Found ${urlMatches.length} property URLs on Van der Meulen`);
-
-    // Extract street names from the text content
-    const streetPattern = /(Peizerweg|Hereweg|Framaheerd|Heresingel|Steentilstraat|Verlengde hereweg|Korreweg|Heuvelweg|Dijkstraat|Van speykstraat|Praediniussingel)/gi;
-    const streetMatches = Array.from(html.matchAll(streetPattern));
-    console.log(`🏘️ Found ${streetMatches.length} street names on Van der Meulen`);
-
-    // Process properties by matching prices with streets and URLs
-    const maxProperties = Math.min(priceMatches.length, Math.max(streetMatches.length, urlMatches.length), 6);
-
-    for (let i = 0; i < maxProperties; i++) {
-      const priceMatch = priceMatches[i];
+    // Process each property link individually with context matching
+    for (let i = 0; i < Math.min(linkMatches.length, 10); i++) {
+      const linkMatch = linkMatches[i];
+      const href = linkMatch[1];
+      
+      // Find the HTML context around this link (within 2000 characters)
+      const linkIndex = html.indexOf(linkMatch[0]);
+      if (linkIndex === -1) continue;
+      
+      const contextStart = Math.max(0, linkIndex - 1500);
+      const contextEnd = Math.min(html.length, linkIndex + 1500);
+      const context = html.substring(contextStart, contextEnd);
+      
+      // Extract price from this context
+      const priceMatch = context.match(/(\d{1,4}(?:\.\d{3})?)\s*p\/m/i);
       if (!priceMatch) continue;
-
+      
       const priceStr = priceMatch[1].replace('.', '');
       const price = parseInt(priceStr, 10);
-
+      
       if (price < 150 || price > 3000) continue;
-
-      // Use street name if available, otherwise extract from URL
+      
+      // Extract street name from this context or URL
       let streetName = 'Groningen Property';
-      if (streetMatches.length > i) {
-        streetName = streetMatches[i][1];
-      } else if (urlMatches.length > i) {
-        // Extract street from URL pattern like /huurwoningen/peizerweg-groningen-h107120352/
-        const urlMatch = urlMatches[i][1].match(/\/huurwoningen\/([^-]+)/);
+      
+      // Method 1: Try to extract from context first
+      const streetMatch = context.match(/(Peizerweg|Hereweg|Framaheerd|Heresingel|Steentilstraat|Verlengde hereweg|Korreweg|Heuvelweg|Dijkstraat|Van speykstraat|Praediniussingel|[A-Z][a-z]+(?:straat|weg|singel|laan|plein|heerd))/i);
+      if (streetMatch) {
+        streetName = decodeHtmlEntities(streetMatch[1]);
+      } else {
+        // Method 2: Extract from URL pattern like /huurwoningen/peizerweg-groningen-h107120352/
+        const urlMatch = href.match(/\/huurwoningen\/([^-]+)/);
         if (urlMatch) {
-          streetName = urlMatch[1].charAt(0).toUpperCase() + urlMatch[1].slice(1);
+          streetName = decodeHtmlEntities(urlMatch[1].charAt(0).toUpperCase() + urlMatch[1].slice(1));
+        } else {
+          // Method 3: Try to find street name in the full HTML near this link
+          const fullContextStart = Math.max(0, linkIndex - 3000);
+          const fullContextEnd = Math.min(html.length, linkIndex + 3000);
+          const fullContext = html.substring(fullContextStart, fullContextEnd);
+          
+          const fullStreetMatch = fullContext.match(/([A-Z][a-z]+(?:straat|weg|singel|laan|plein|heerd))/i);
+          if (fullStreetMatch) {
+            streetName = decodeHtmlEntities(fullStreetMatch[1]);
+          }
         }
       }
 
+      // Validate that we have a proper URL
+      if (!href || href.length < 10) {
+        console.log(`⚠️ Invalid URL found for property: ${streetName}`);
+        continue;
+      }
+
+      const fullUrl = baseUrl + href;
+      console.log(`🏠 Processing Van der Meulen property: ${streetName} -> €${price} -> ${fullUrl}`);
+
       const daysAgo = Math.floor(Math.random() * 5);
       const listedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
-
-      // Determine property URL
-      const propertyUrl = urlMatches.length > i ? baseUrl + urlMatches[i][1] : `${baseUrl}/huurwoningen/${streetName.toLowerCase()}-groningen/`;
 
       properties.push({
         id: `vandermeulen-${Date.now()}-${i}`,
@@ -245,7 +332,7 @@ async function scrapeVanDerMeulen(): Promise<ScrapedProperty[]> {
         rooms: price > 1200 ? (price > 1800 ? 3 : 2) : 1,
         image: `https://images.unsplash.com/photo-${1568605114967 + Math.floor(Math.random() * 100000)}?w=400&h=250&fit=crop&crop=center`,
         images: [`https://images.unsplash.com/photo-${1568605114967 + Math.floor(Math.random() * 100000)}?w=400&h=250&fit=crop&crop=center`],
-        sourceUrl: propertyUrl,
+        sourceUrl: fullUrl,
         agent: 'Van der Meulen Makelaars',
         description: `${streetName}, Groningen - Aangeboden door Van der Meulen Makelaars`,
         listedDate: listedDate.toISOString().split('T')[0],
@@ -253,48 +340,6 @@ async function scrapeVanDerMeulen(): Promise<ScrapedProperty[]> {
       });
 
       console.log(`✅ Added Van der Meulen property: ${streetName} - €${price}`);
-    }
-
-    // Fallback: use simpler pattern if no blocks found
-    if (properties.length === 0) {
-      console.log('🔄 Using fallback pattern for Van der Meulen...');
-
-      const simplePricePattern = /(\d{1,4}(?:\.\d{3})?)\s*p\/m/gi;
-      const simpleStreetPattern = /(Peizerweg|Hereweg|Framaheerd|Heresingel|Steentilstraat|Verlengde hereweg|Korreweg|[A-Z][a-z]+(?:straat|weg|singel|laan|plein))/gi;
-
-      const priceMatches = Array.from(html.matchAll(simplePricePattern));
-      const streetMatches = Array.from(html.matchAll(simpleStreetPattern));
-
-      console.log(`💰 Fallback: Found ${priceMatches.length} prices, ${streetMatches.length} streets`);
-
-      const maxFallback = Math.min(priceMatches.length, streetMatches.length, 5);
-      for (let i = 0; i < maxFallback; i++) {
-        const price = parseInt(priceMatches[i][1].replace('.', ''), 10);
-        const street = streetMatches[i][1];
-
-        if (price < 150 || price > 3000) continue;
-
-        const daysAgo = Math.floor(Math.random() * 7);
-        const listedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
-
-        properties.push({
-          id: `vandermeulen-fallback-${Date.now()}-${i}`,
-          title: `${street}, Groningen`,
-          price: price,
-          location: 'Groningen',
-          size: `${40 + Math.floor(Math.random() * 60)}m²`,
-          rooms: price > 1200 ? 2 : 1,
-          image: `https://images.unsplash.com/photo-${1568605114967 + Math.floor(Math.random() * 100000)}?w=400&h=250&fit=crop&crop=center`,
-          images: [`https://images.unsplash.com/photo-${1568605114967 + Math.floor(Math.random() * 100000)}?w=400&h=250&fit=crop&crop=center`],
-          sourceUrl: `${baseUrl}/huurwoningen/${street.toLowerCase().replace(/\s+/g, '-')}-groningen/`,
-          agent: 'Van der Meulen Makelaars',
-          description: `${street}, Groningen - Aangeboden door Van der Meulen Makelaars`,
-          listedDate: listedDate.toISOString().split('T')[0],
-          daysAgo: daysAgo
-        });
-
-        console.log(`✅ Added Van der Meulen fallback property: ${street} - €${price}`);
-      }
     }
 
     console.log(`🎯 Van der Meulen Makelaars: ${properties.length} real properties found`);
@@ -373,7 +418,7 @@ async function scrapeRotsvast(): Promise<ScrapedProperty[]> {
 
       // Extract street name from URL
       const streetMatch = url.match(/\/([a-z-]+)-groningen-/);
-      const streetName = streetMatch ? streetMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Groningen';
+      const streetName = streetMatch ? decodeHtmlEntities(streetMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())) : 'Groningen';
 
       properties.push({
         id: `rotsvast-${Date.now()}-${i}`,
@@ -420,7 +465,7 @@ async function scrapeRotsvast(): Promise<ScrapedProperty[]> {
 
         // Extract street name from URL
         const streetMatch = url.match(/\/([a-z-]+)-groningen-/);
-        const streetName = streetMatch ? streetMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Groningen';
+        const streetName = streetMatch ? decodeHtmlEntities(streetMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())) : 'Groningen';
 
         properties.push({
           id: `rotsvast-fallback-${Date.now()}-${i}`,
