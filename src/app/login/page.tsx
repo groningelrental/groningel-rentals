@@ -6,12 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import RegisterModal from '@/components/RegisterModal';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,7 +30,6 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      console.log(response);
 
       if (response.ok) {
         const urlParams = new URLSearchParams(window.location.search);
@@ -36,13 +37,28 @@ export default function LoginPage() {
         router.push(redirect);
       } else {
         const data = await response.json();
-        setError(data.message || 'Login failed');
+        
+        // Handle payment required error
+        if (response.status === 402 && data.requiresPayment) {
+          setError('Payment required. Please complete your subscription to access your account.');
+          // You could redirect to a payment page here if needed
+        } else {
+          setError(data.message || 'Login failed');
+        }
       }
     } catch (err) {
       setError('An error occurred during login');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSwitchToRegister = () => {
+    setShowRegisterModal(true);
+  };
+
+  const handleCloseRegisterModal = () => {
+    setShowRegisterModal(false);
   };
 
   return (
@@ -82,9 +98,27 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? 'Logging in...' : 'Login'}
             </Button>
+            
+            <div className="text-center text-sm text-gray-600">
+              Don't have an account?{' '}
+              <button
+                type="button"
+                onClick={handleSwitchToRegister}
+                className="text-blue-600 hover:text-blue-800 font-medium"
+                disabled={isLoading}
+              >
+                Create one
+              </button>
+            </div>
           </form>
         </CardContent>
       </Card>
+
+      <RegisterModal
+        isOpen={showRegisterModal}
+        onClose={handleCloseRegisterModal}
+        onSwitchToLogin={handleCloseRegisterModal}
+      />
     </div>
   );
 }

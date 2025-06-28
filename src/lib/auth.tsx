@@ -9,7 +9,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'demo' | 'admin';
+  role: 'user' | 'admin';
 }
 
 // Auth context type

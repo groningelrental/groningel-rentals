@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 // Force Node.js runtime for JWT operations
 export const runtime = 'nodejs';
 import { verifyJWTToken, sanitizeError } from '@/lib/security';
+import { findUserById } from '@/lib/services/userService';
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,15 +33,28 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Fetch user from database
+    const user = await findUserById(payload.userId);
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          error: 'User not found',
+          message: 'User account no longer exists',
+        },
+        { status: 404 }
+      );
+    }
+
     // Return user information
     return NextResponse.json(
       {
         success: true,
         user: {
-          id: payload.userId,
-          email: payload.email,
-          name: payload.email === 'demo@groningenrentals.com' ? 'Demo User' : 'Admin User',
-          role: payload.role,
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
         },
       },
       { status: 200 }

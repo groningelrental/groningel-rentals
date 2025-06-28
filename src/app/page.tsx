@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import RegisterModal from "@/components/RegisterModal";
 import {
   Search,
   Home as HomeIcon,
@@ -34,7 +35,10 @@ export default function HomePage() {
   const [newListingsToday, setNewListingsToday] = useState(0);
   const [sampleProperties, setSampleProperties] = useState<Property[]>([]);
   const [showLogin, setShowLogin] = useState(false);
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [agencyCounts, setAgencyCounts] = useState({
     gruno: 0,
     vanderMeulen: 0,
@@ -53,13 +57,48 @@ export default function HomePage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await login(loginForm.username, loginForm.password);
-    if (success) {
-      setShowLogin(false);
-      setLoginForm({ username: '', password: '' });
-    } else {
+    setIsLoginLoading(true);
+    setLoginError('');
 
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: loginForm.email, password: loginForm.password }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Update auth context
+        await login(loginForm.email, loginForm.password);
+        setShowLogin(false);
+        setLoginForm({ email: '', password: '' });
+        setLoginError('');
+      } else {
+        const data = await response.json();
+        setLoginError(data.message || 'Login failed');
+      }
+    } catch (err) {
+      setLoginError('An error occurred during login');
+    } finally {
+      setIsLoginLoading(false);
     }
+  };
+
+  const handleSwitchToRegister = () => {
+    setShowLogin(false);
+    setShowRegisterModal(true);
+  };
+
+  const handleCloseRegisterModal = () => {
+    setShowRegisterModal(false);
+  };
+
+  const handleSwitchToLogin = () => {
+    setShowRegisterModal(false);
+    setShowLogin(true);
   };
 
   useEffect(() => {
@@ -337,10 +376,15 @@ export default function HomePage() {
                 </div>
               )}
               {!isAuthenticated && (
-                <Button variant="outline" onClick={() => setShowLogin(true)}>
-                  <User className="h-4 w-4 mr-2" />
-                  Login
-                </Button>
+                <div className="flex items-center space-x-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowLogin(true)}>
+                    <User className="h-4 w-4 mr-2" />
+                    Login
+                  </Button>
+                  <Button size="sm" onClick={() => setShowRegisterModal(true)}>
+                    Sign Up
+                  </Button>
+                </div>
               )}
               <Button variant="outline" asChild>
                 <Link href="/notifications">
@@ -869,14 +913,15 @@ export default function HomePage() {
           </DialogHeader>
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
-                id="username"
-                type="text"
-                placeholder="Enter your username"
-                value={loginForm.username}
-                onChange={(e) => setLoginForm(prev => ({ ...prev, username: e.target.value }))}
+                id="email"
+                type="email"
+                placeholder="Enter your email"
+                value={loginForm.email}
+                onChange={(e) => setLoginForm(prev => ({ ...prev, email: e.target.value }))}
                 required
+                disabled={isLoginLoading}
               />
             </div>
             <div className="space-y-2">
@@ -888,19 +933,40 @@ export default function HomePage() {
                 value={loginForm.password}
                 onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
                 required
+                disabled={isLoginLoading}
               />
             </div>
+            {loginError && (
+              <div className="text-red-600 text-sm bg-red-50 p-3 rounded-md">
+                {loginError}
+              </div>
+            )}
             <div className="space-y-2">
-              <Button type="submit" className="w-full">
-                Login
+              <Button type="submit" className="w-full" disabled={isLoginLoading}>
+                {isLoginLoading ? 'Logging in...' : 'Login'}
               </Button>
-              <p className="text-xs text-muted-foreground text-center">
-                Contact support for account access
-              </p>
+              <div className="text-center text-sm text-gray-600">
+                Don't have an account?{' '}
+                <button
+                  type="button"
+                  onClick={handleSwitchToRegister}
+                  className="text-blue-600 hover:text-blue-800 font-medium"
+                  disabled={isLoginLoading}
+                >
+                  Create one
+                </button>
+              </div>
             </div>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Register Modal */}
+      <RegisterModal
+        isOpen={showRegisterModal}
+        onClose={handleCloseRegisterModal}
+        onSwitchToLogin={handleSwitchToLogin}
+      />
     </div>
   );
 }

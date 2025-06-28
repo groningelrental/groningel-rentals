@@ -5,31 +5,7 @@ export const runtime = 'nodejs';
 import { validateInput, loginSchema } from '@/lib/validation';
 import { verifyPassword, createJWTToken, createSession, sanitizeError } from '@/lib/security';
 import { serialize } from 'cookie';
-
-// Demo users with hashed passwords (in production, use a database)
-const DEMO_USERS = {
-  'demo@groningenrentals.com': {
-    id: 'demo-001',
-    email: 'demo@groningenrentals.com',
-    passwordHash: '$2a$12$zvjiCTUwvzeokjzPGnSXYeck2WW1KYXrWm7XovpsdrtiGmtZ3N7S2', // "demo2025"
-    role: 'demo' as const,
-    name: 'Demo User',
-  },
-  'admin@groningenrentals.com': {
-    id: 'admin-001',
-    email: 'admin@groningenrentals.com',
-    passwordHash: '$2a$12$6BcCz0pM31AdLUM7mvzakexEPw5EVLa.UOH7ITV18VQ8BKY3m7bda', // "admin2025"
-    role: 'admin' as const,
-    name: 'Admin User',
-  },
-  'sweder@groningenrentals.com': {
-    id: 'sweder-001',
-    email: 'sweder@groningenrentals.com',
-    passwordHash: '$2a$12$AQwZBw5mZEjzCPNm6R5LxOI4M.uZjQJZa3QJhZ8G5E2XvO9BcYC6.', // "sweder2025"
-    role: 'admin' as const,
-    name: 'Sweder Andersson',
-  },
-};
+import { findUserByEmail } from '@/lib/services/userService';
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,7 +30,7 @@ export async function POST(request: NextRequest) {
     const { email, password } = validation.data;
 
     // Find user
-    const user = DEMO_USERS[email.toLowerCase() as keyof typeof DEMO_USERS];
+    const user = await findUserByEmail(email);
     if (!user) {
       // Use a delay to prevent timing attacks
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -77,6 +53,18 @@ export async function POST(request: NextRequest) {
           message: 'Invalid email or password',
         },
         { status: 401 }
+      );
+    }
+
+    // Check if user is subscribed
+    if (!user.isSubscribed) {
+      return NextResponse.json(
+        {
+          error: 'Payment required',
+          message: 'Please complete your subscription payment to access your account.',
+          requiresPayment: true,
+        },
+        { status: 402 }
       );
     }
 

@@ -1,12 +1,19 @@
-# GroningenRentals v4.0.0 🏠
+# GroningenRentals v4.1.0 🏠
 
 **Live Site:** https://groningen-rentals-v3-8etp.vercel.app/
 
 A comprehensive rental property aggregator for Groningen, Netherlands. Direct access to all major real estate agencies with real-time scraping and instant property updates.
 
-## 🎉 Version 4.0.0 - Manual Scrape & Enhanced Admin Dashboard
+## 🎉 Version 4.1.0 - MongoDB Integration & Enhanced Authentication
 
 ### ✨ New Features
+- 🗄️ **MongoDB Integration** - Persistent user data storage with MongoDB
+- 🔐 **Enhanced Authentication** - Secure user registration and login system
+- 👥 **User Management** - User roles (user, demo, admin) with proper permissions
+- 🚀 **Database Initialization** - Automated setup with demo users
+- 📊 **User Registration** - Public registration system for new users
+
+### 🔄 Previous Features
 - 🔄 **Manual Scrape Button** - Instant control over property scraping in admin dashboard
 - 📋 **Recent Properties List** - Live display of 10 most recent listings
 - 🎯 **Enhanced Admin UI** - Property cards with agency links and real-time data
@@ -26,24 +33,25 @@ A comprehensive rental property aggregator for Groningen, Netherlands. Direct ac
 
 **Total Live Properties:** 61+ properties updated every 10 minutes
 
-### 🔑 Admin Access
-- **URL:** https://groningen-rentals-v3-8etp.vercel.app/admin
-- **Username:** charlie
-- **Password:** Ch4rli3_S3cur3_P4ss!
+### 🔑 Authentication System
 
-### 📊 Manual Scrape Button Features
-- Triggers instant scraping of all 9 agencies
-- Bypasses cache for fresh real-time data
-- Shows success/failure alerts with property counts
-- Updates dashboard statistics automatically
-- Displays recent properties with agency links
+#### Demo Users (Auto-created)
+- **Demo User**: `demo@groningenrentals.com` / `demo2025`
+- **Admin User**: `admin@groningenrentals.com` / `admin2025`
+- **Sweder**: `sweder@groningenrentals.com` / `sweder2025`
+
+#### User Registration
+- Public registration available at `/login`
+- New users get 'user' role by default
+- Email verification and secure password hashing
 
 ## 🚀 Tech Stack
 - **Framework:** Next.js 15.3.2 with TypeScript
 - **Styling:** Tailwind CSS + shadcn/ui components
 - **Package Manager:** Bun
 - **Deployment:** Vercel
-- **Authentication:** JWT with bcrypt
+- **Database:** MongoDB with native driver
+- **Authentication:** JWT with bcrypt password hashing
 - **Scraping:** Real-time API endpoints
 
 ## 📱 Features
@@ -53,12 +61,15 @@ A comprehensive rental property aggregator for Groningen, Netherlands. Direct ac
 - **Email Notifications:** Subscribe for new property alerts
 - **Mobile Responsive:** Works on all devices
 - **Admin Dashboard:** Full monitoring and manual control
+- **User Authentication:** Secure login/registration system
+- **Role-based Access:** Different permissions for users, demo, and admin
 
 ## 🏃‍♂️ Quick Start
 
 ### Prerequisites
 - **Bun** runtime (latest version)
 - **Node.js** 18+ (for compatibility)
+- **MongoDB** database (local or cloud)
 
 ### Installation
 
@@ -70,11 +81,37 @@ cd groningen-rentals
 # Install dependencies
 bun install
 
+# Set up environment variables
+cp .env.example .env.local
+# Edit .env.local with your MongoDB URI and other settings
+
+# Initialize database (creates collections and demo users)
+bun run init-db
+
 # Start development server
 bun run dev
 ```
 
 The application will be available at `http://localhost:3000`
+
+### Environment Variables
+
+Create a `.env.local` file with:
+
+```bash
+# MongoDB Configuration
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/groningen-rentals?retryWrites=true&w=majority
+MONGODB_DB_NAME=groningen-rentals
+
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+
+# Email Configuration (Resend)
+RESEND_API_KEY=your_actual_resend_api_key_here
+
+# Environment
+NODE_ENV=development
+```
 
 ## 🏗️ Architecture
 
@@ -85,25 +122,104 @@ The application will be available at `http://localhost:3000`
 - **shadcn/ui** - Modern UI components
 - **Lucide React** - Beautiful icons
 
+### Backend Stack
+- **MongoDB** - Document database for user data
+- **JWT** - Stateless authentication tokens
+- **bcrypt** - Secure password hashing
+- **Next.js API Routes** - Serverless API endpoints
+
 ### Data Layer
-- **Real-time API simulation** - Mock backend with real data structure
+- **MongoDB Collections** - Users, properties, notifications
 - **TypeScript interfaces** - Strong typing for all data models
-- **Local state management** - React hooks for application state
+- **Service Layer** - Business logic separation
 
 ### Key Components
 
 ```
 src/
 ├── app/
-│   ├── page.tsx              # Main property listings
-│   ├── contact/page.tsx      # Contact form for properties
+│   ├── api/auth/           # Authentication endpoints
+│   │   ├── login/          # Login/logout
+│   │   ├── register/       # User registration
+│   │   └── me/             # Auth status check
+│   ├── page.tsx            # Main property listings
+│   ├── login/page.tsx      # Login page
+│   ├── contact/page.tsx    # Contact form for properties
 │   ├── notifications/page.tsx # Notification management
-│   └── sources/page.tsx      # All rental platform sources
+│   └── sources/page.tsx    # All rental platform sources
 ├── lib/
-│   ├── api.ts               # Data models and API structure
-│   └── utils.ts             # Utility functions
-└── components/ui/           # Reusable UI components
+│   ├── mongodb.ts          # Database connection
+│   ├── models/             # Data models
+│   ├── services/           # Business logic
+│   ├── security.ts         # Authentication utilities
+│   └── auth.tsx            # React auth context
+└── components/ui/          # Reusable UI components
 ```
+
+## 🔧 Database Schema
+
+### User Collection
+```typescript
+interface User {
+  _id?: ObjectId;
+  id: string;
+  email: string;
+  passwordHash: string;
+  name: string;
+  role: 'user' | 'admin' | 'demo';
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+### Collections
+- **users** - User accounts and authentication data
+- **properties** - Property listings (future implementation)
+- **notifications** - Notification subscriptions (future implementation)
+
+## 🔄 Authentication Flow
+
+### Registration
+1. User submits registration form
+2. Email uniqueness validation
+3. Password hashing with bcrypt
+4. User creation in MongoDB
+5. JWT token generation
+6. Secure HTTP-only cookie set
+
+### Login
+1. User submits login credentials
+2. Email lookup in database
+3. Password verification with bcrypt
+4. JWT token generation
+5. Secure HTTP-only cookie set
+
+### Authentication Check
+1. JWT token extraction from cookies
+2. Token verification and payload extraction
+3. User lookup by ID in database
+4. User data returned if valid
+
+## 🛠️ Development
+
+### Available Scripts
+- `bun run dev` - Start development server
+- `bun run build` - Build for production
+- `bun run start` - Start production server
+- `bun run lint` - Run linting checks
+- `bun run init-db` - Initialize database and demo users
+
+### Database Operations
+- **Connection Management** - Automatic connection pooling
+- **Index Creation** - Performance optimization for queries
+- **Demo Data** - Automatic creation of test users
+- **Error Handling** - Comprehensive error management
+
+## 📚 Documentation
+
+For detailed MongoDB setup instructions, see [MONGODB_SETUP.md](./MONGODB_SETUP.md)
+
+For login credentials and email setup, see [LOGIN_CREDENTIALS.md](./LOGIN_CREDENTIALS.md)
 
 ## 🔧 API Integration
 
@@ -192,12 +308,6 @@ groningen-rentals/
 ├── public/                  # Static assets
 └── [config files]          # Next.js, TypeScript, Tailwind configs
 ```
-
-### Available Scripts
-- `bun run dev` - Start development server
-- `bun run build` - Build for production
-- `bun run start` - Start production server
-- `bun run lint` - Run linting checks
 
 ### Adding New Data Sources
 1. Add source to `API_ENDPOINTS` in `src/lib/api.ts`
@@ -310,5 +420,3 @@ MIT License - feel free to use and modify
 **Built with ❤️ for the Groningen rental community**
 
 *Making house hunting in Groningen easier, one property at a time.*
-
-</initial_code>
