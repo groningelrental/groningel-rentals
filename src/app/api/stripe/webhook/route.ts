@@ -9,8 +9,7 @@ export async function POST(req: NextRequest) {
   console.log('Webhook received!');
   
   const sig = req.headers.get('stripe-signature');
-  // const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-  const webhookSecret = "whsec_070aa5f49efb0132a0d956a4054496c4e46e4c78ec2af2d34cd5fb4f56495bb0";
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
   let event: Stripe.Event;
 
   const body = await req.text();
