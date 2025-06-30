@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-// Force Node.js runtime for web scraping
 export const runtime = "nodejs";
 
 interface ScrapedProperty {
