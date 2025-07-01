@@ -1,7 +1,7 @@
 import type { Property } from './api';
 
 // Disabled live scraper for production deployment
-// This file replaces the live-scraper.ts to avoid Playwright build issues
+// This file replaces the live-scraper.ts to avoid browser automation issues in production
 
 // Mock live scraper functions that return empty results
 export const scrapePararius = async (): Promise<Property[]> => {

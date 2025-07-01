@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Remove standalone output for Vercel deployment
-  serverExternalPackages: ['bcryptjs', 'playwright'],
+  serverExternalPackages: ['bcryptjs'],
 
   images: {
     remotePatterns: [
